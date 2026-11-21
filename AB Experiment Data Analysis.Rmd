@@ -1,0 +1,208 @@
+---
+title: "A/B Experiment Data Analysis"
+author: "Robert Glück"
+date: "2026-05-31"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+Sys.setenv(LANG = "en")
+Sys.setlocale("LC_ALL", "English")
+```
+
+
+
+## Project Goal
+
+This A/B experiment evaluates the impact of a website's User Interface (UI) theme, focusing
+on the comparison between Dark Mode (light text on a dark background) versus Light Mode
+(dark text on a light background). The investigation is divided into two distinct goals:
+
+• Goal 1 (Objective Search Speed): To investigate whether a Dark Mode UI versus a
+Light Mode UI affects the time it takes a user to successfully locate a specific target
+word within a block of text.
+
+• Goal 2 (Subjective Readability): To investigate whether a Dark Mode UI versus a Light
+Mode UI affects the users' self-reported perceived readability of that text.
+
+
+The website for collecting experiment data is at the link https://floorvansteijn.github.io/ab-testing-case-study/. We have conducted 24 tests for the experiment and the data obtained is visible below.
+
+```{r message=FALSE}
+library(dplyr)
+library(effectsize)
+```
+
+```{r}
+experiment_data <- read.csv("Experiment_Data.csv")
+experiment_data
+```
+
+
+
+```{r}
+results <- subset(experiment_data , select = -Timestamp)
+results
+```
+
+
+
+
+## Comparison of search time between the modes
+
+
+• Null Hypothesis (H0): There is no difference in the average search time when users
+perform target-word searching on a Light Mode web page compared to a Dark Mode
+web page.
+
+• Alternative Hypothesis (H1): There is a measurable difference in the average search
+time when users perform target-word searching on a Light Mode web page compared
+to a Dark Mode web page.
+
+
+```{r}
+boxplot(SearchTime~Theme, data= results)
+```
+
+
+### Z-test for the SearchTime
+```{r}
+# Mean
+(X_light <- mean(results[results$Theme == "Light Mode",]$SearchTime))
+(X_dark <- mean(results[results$Theme == "Dark Mode",]$SearchTime))
+
+# Variance
+(S2_light <- var(results[results$Theme == "Light Mode",]$SearchTime))
+(S2_dark <- var(results[results$Theme == "Dark Mode",]$SearchTime))
+
+(n_light <- length(results[results$Theme == "Light Mode",]$SearchTime))
+(n_dark <- length(results[results$Theme == "Dark Mode",]$SearchTime))
+
+X_diff = X_light - X_dark
+(Z_diff = X_diff / sqrt(S2_light/n_light + S2_dark/n_dark))
+
+# 1-tailed, alternative: Light > Dark
+(p_value_1_tailed = 1-pnorm(Z_diff))
+
+# 2-tailed, Light <> Dark
+(p_value_2_tailed = 2*pnorm(-abs(Z_diff)))
+
+cat("p_value_1_tailed: ", p_value_1_tailed, "\np_value_2_tailed: ", p_value_2_tailed)
+```
+Since the value of the 2 tailed p-value is as high as 0.56, the difference in means is not statistically significant.
+
+
+
+### t-test
+```{r}
+# Adjust order of the levels
+results$Theme = factor(results$Theme, levels=c("Light Mode", "Dark Mode"))
+levels(results$Theme)
+
+t.result <- t.test(SearchTime ~ Theme, data=results, alternative="two.sided", var.equal=TRUE)
+t.result
+```
+
+The t-test also confirms we cannot say the true mean of "Light Mode" group differs from the "Dark Mode" one.
+
+
+### Tests for normal distribution of the data
+```{r}
+shapiro.test(results[results$Theme == "Light Mode",]$SearchTime)
+shapiro.test(results[results$Theme == "Dark Mode",]$SearchTime)
+```
+
+As the p-value in both cases is greater than 0.05, the experiment data is normally distributed.
+
+
+```{r}
+library(car)
+leveneTest(SearchTime ~ Theme, data = results)
+```
+
+Although looking at the boxplots may suggest the variances in the "Light Mode" and "Dark Mode" data are not equal (as the latter shows bigger spread of the data), the Levene test rejects that which validates the previous results of the t-test.
+
+
+### Linear Regression model
+
+```{r}
+levels(results$Theme)
+
+lm.fit <- lm(SearchTime ~ Theme, data = results)
+summary(lm.fit)
+```
+
+
+```{r}
+shapiro.test(resid(lm.fit))
+```
+The residuals of the linear model are normally distributed. The Q-Q plot below doesn't show big deviations.
+
+
+```{r}
+qqnorm(resid(lm.fit))
+qqline(resid(lm.fit))
+```
+
+
+```{r}
+hedges_g(SearchTime ~ Theme, data=results)
+```
+
+
+\
+
+
+### Conclusion for the search time
+
+The difference between average search time for the "Light Mode" and "Dark Mode" is small and may be due to participant differences, not the website colors themselves. Furthermore, a Hedge's g calculation revealed an effect size of 0.23, which confirms practically there is no difference between the themes. However, the group of 24 participants is not that large, therefore conducting the experiment with more people would verify if in fact people search the words slightly quicker with the "Dark Mode" on. P-value with the alternative hypothesis that the "Dark Mode" is quicker equals to 0.28. Perhaps a slight difference exists between search times but according Hedges' g it won't be robust and will not affect the search time.
+
+
+
+---
+\
+
+\
+
+
+## Comparison of perceived readability between the modes
+
+
+• Null Hypothesis (H0): The UI theme (Light vs. Dark) has no effect on the users' selfreports of perceived readability.
+
+• Alternative Hypothesis (H1): The UI theme (Light vs. Dark) does have an effect on the
+users' self-reports of perceived readability.
+
+\
+
+For evaluating the readability, we utilized Likert scale, which instead of continuous is an ordinal variable. The difference between "Strongly Agree" and "Agree" is not the same as "Agree" and "Neutral". It depends also on a person, therefore, the Light and Dark modes readability difference is examined with the Wilcox test which does not make the assumptions about the distribution. The following code compares the medians of two groups:
+
+
+```{r}
+# The Non-Parametric Test
+wilcox.test(ReadabilityRating ~ Theme, data = results)
+```
+
+
+
+
+```{r}
+# Effect Size
+cliffs_delta(ReadabilityRating ~ Theme, data = results)
+
+```
+Moreover, the effect size (Cliff's delta d=0.01) is absolutely negligible. Changing the theme had no impact on how users rated the readability.
+
+
+\
+
+
+### Conclusion for the readability rating
+
+
+Combining Wilcox high p-value and negligible effect size results in the clear conclusion; that the readability rating is the same for both of the website themes. If there is a difference to be found within the larger group, it would be in the word search time.
+
